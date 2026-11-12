@@ -1,0 +1,31 @@
+# Segredos e variáveis locais
+.env
+.env.*
+!.env.example
+
+# Cookies e sessões exportadas do navegador
+cookies*.json
+*cookies*.json
+!cookies.example.json
+
+# Histórico local e mídias geradas
+videos_criados.json
+videos/
+downloads/
+*.mp4
+
+# Arquivos pessoais / fora do escopo do bot
+teste.py
+img/dormir.png
+img/conetinua_ejogo.png
+
+# Python / IDE / SO
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
