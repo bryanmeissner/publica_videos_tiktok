@@ -6,23 +6,26 @@ from config import get_download_video_path, get_ffmpeg_path, get_project_video_p
 def acelerar_video(arquivo_entrada, arquivo_saida, velocidade=2.0, caminho_ffmpeg='ffmpeg'):
     """
     Acelera um vídeo usando FFmpeg.
-    
+
     Args:
         arquivo_entrada: Caminho do vídeo original
         arquivo_saida: Caminho para salvar o vídeo acelerado
         velocidade: Fator de aceleração (2.0 = 2x mais rápido, 0.5 = 2x mais lento)
         caminho_ffmpeg: Caminho completo do executável ffmpeg (padrão: 'ffmpeg')
     """
-    
+
     # Verifica se o arquivo de entrada existe
     if not os.path.exists(arquivo_entrada):
         print(f"Erro: Arquivo '{arquivo_entrada}' não encontrado!")
         return False
-    
+
+    pasta_saida = os.path.dirname(os.path.abspath(arquivo_saida))
+    if pasta_saida:
+        os.makedirs(pasta_saida, exist_ok=True)
+
     # Calcula os filtros de vídeo e áudio
     filtro_video = f"setpts={1/velocidade}*PTS"
     filtro_audio = criar_filtro_audio(velocidade)
-    
     comando = [
         caminho_ffmpeg,
         '-i', arquivo_entrada,
@@ -31,18 +34,18 @@ def acelerar_video(arquivo_entrada, arquivo_saida, velocidade=2.0, caminho_ffmpe
         '-y',
         arquivo_saida
     ]
-    
+
     while True:  # Loop infinito até o vídeo ser processado com sucesso
         try:
             print(f"Acelerando vídeo em {velocidade}x...")
-            
+
             resultado = subprocess.run(
                 comando,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True
             )
-            
+
             if resultado.returncode == 0:
                 print("✓ Vídeo acelerado com sucesso!")
                 return True
@@ -51,7 +54,7 @@ def acelerar_video(arquivo_entrada, arquivo_saida, velocidade=2.0, caminho_ffmpe
                 print(resultado.stderr)
                 print("Tentando novamente em 2 segundos...")
                 time.sleep(2)  # Aguarda 2 segundos antes de tentar novamente
-            
+
         except FileNotFoundError:
             print("Erro: FFmpeg não encontrado. Certifique-se de que está instalado.")
             print("Instale com: sudo apt install ffmpeg (Linux) ou brew install ffmpeg (Mac)")
@@ -68,28 +71,31 @@ def criar_filtro_audio(velocidade):
     """
     if 0.5 <= velocidade <= 2.0:
         return f"atempo={velocidade}"
-    
+
     # Para velocidades maiores, encadear múltiplos atempo
     filtros = []
     vel_restante = velocidade
-    
+
     while vel_restante > 2.0:
         filtros.append("atempo=2.0")
         vel_restante /= 2.0
-    
+
     while vel_restante < 0.5:
         filtros.append("atempo=0.5")
         vel_restante /= 0.5
-    
+
     if vel_restante != 1.0:
         filtros.append(f"atempo={vel_restante}")
-    
+
     return ",".join(filtros)
 
-# Exemplo de uso
-if __name__ == "__main__":
+def main():
     video_entrada = get_download_video_path()
     video_saida = get_project_video_path()
     fator_velocidade = 1.3
     caminho_ffmpeg = get_ffmpeg_path()
     acelerar_video(video_entrada, video_saida, fator_velocidade, caminho_ffmpeg)
+
+
+if __name__ == "__main__":
+    main()

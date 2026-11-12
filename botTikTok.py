@@ -1,4 +1,3 @@
-import json
 from playwright.sync_api import sync_playwright
 from time import sleep
 import openai
@@ -9,30 +8,37 @@ from config import (
     get_download_video_path,
     get_downloads_dir,
     get_project_video_path,
+    get_videos_json_path,
     load_cookies,
+    load_videos_json,
+    save_videos_json,
 )
 
 
-
-
 # Função para carregar o JSON e obter o próximo vídeo não enviado
-def obter_proximo_video(caminho_json):
+def obter_proximo_video(caminho_json=None):
+    caminho = caminho_json or get_videos_json_path()
     tentativas = 0
-    max_tentativas = 100
+    max_tentativas = 5
 
     while tentativas < max_tentativas:
         try:
-            with open(caminho_json, 'r', encoding='utf-8') as arquivo:
-                videos = json.load(arquivo)
+            videos = load_videos_json(caminho)
             for video in videos:
-                if not video['enviado']:
+                if not video.get('enviado'):
                     nome_arquivo = os.path.join(str(get_downloads_dir()), f"{video['nome']}.mp4")
-                    if os.path.exists(nome_arquivo) and nome_arquivo.endswith('.mp4'):
+                    caminho_download = get_download_video_path()
+                    caminho_projeto = get_project_video_path()
+                    if (
+                        (os.path.exists(nome_arquivo) and nome_arquivo.endswith('.mp4'))
+                        or (os.path.exists(caminho_download) and caminho_download.endswith('.mp4'))
+                        or (os.path.exists(caminho_projeto) and caminho_projeto.endswith('.mp4'))
+                    ):
                         return video['nome'], videos
                     else:
                         # Atualiza o status de envio para True se o arquivo não existir ou não for .mp4
                         video['enviado'] = True
-                        atualizar_status_video(caminho_json, videos)
+                        atualizar_status_video(caminho, videos)
             return None, videos
         except Exception as e:
             print(f"Erro ao tentar obter o próximo vídeo: {e}")
@@ -43,12 +49,11 @@ def obter_proximo_video(caminho_json):
     return None, []
 
 def atualizar_status_video(caminho_json, videos):
-    with open(caminho_json, 'w', encoding='utf-8') as arquivo:
-        json.dump(videos, arquivo, indent=4, ensure_ascii=False)
+    save_videos_json(videos, caminho_json)
 
 def gera_prompt_video():
     """
-    Gera títulos otimizados para marketplace
+    Gera uma descrição genérica e viral para vídeos do TikTok usando DeepSeek.
     """
     openai.api_key = get_deepseek_api_key()
     openai.api_base = get_deepseek_api_base()
@@ -80,7 +85,7 @@ def gera_prompt_video():
 
     5. **Hashtags OBRIGATÓRIAS**: Após a descrição, adicione uma linha em branco e inclua AS SEGUINTES HASHTAGS QUE DEVEM APARECER EM TODA DESCRIÇÃO:
     #biblia #deus #jesus #cristao
-    
+
     Depois dessas 4 hashtags obrigatórias, adicione mais 8 a 12 hashtags GENÉRICAS sobre o tema cristão/bíblico (exemplos: #fe, #historiasbiblicas, #palavradedeus, #vidacrista, #evangelico, #reflexao, #motivacao, #feemeacao, #igrejatiktok, #gospel, #vidacomcristo, #bibliasagrada, etc.).
 
     6. **IMPORTANTE**: As hashtags #biblia #deus #jesus #cristao devem SEMPRE ser as primeiras quatro hashtags, nessa ordem.
@@ -101,18 +106,20 @@ def gera_prompt_video():
             {"role": "system", "content": prompt_sistema}
         ]
     )
-    
+
     return response['choices'][0]['message']['content']
 
-cookies = load_cookies("TIKTOK_COOKIES_FILE", "cookies_tiktok.json")
+def main():
+    caminho_json = get_videos_json_path()
+    nome_video, videos = obter_proximo_video(caminho_json)
+    if not nome_video:
+        print("Nenhum vídeo pendente encontrado para publicação.")
+        return
 
-descricao = gera_prompt_video()
-caminho_json = './videos_criados.json'
-nome_video, videos = obter_proximo_video('./videos_criados.json')
-tentativas = 0
+    cookies = load_cookies("TIKTOK_COOKIES_FILE", "cookies_tiktok.json")
+    descricao = gera_prompt_video()
+    tentativas = 0
 
-
-if nome_video:
     with sync_playwright() as p:
         # Inicia o navegador
         browser = p.firefox.launch(headless=False)
@@ -129,51 +136,49 @@ if nome_video:
                 if page.locator('button[class="upload-stage-btn Button__root Button__root--shape-default Button__root--size-large Button__root--type-primary Button__root--loading-false"]').is_visible():
                     caminho_arquivo = get_project_video_path()
                     page.set_input_files('input[type="file"]', caminho_arquivo)
-                    
+
                     for video in videos:
                         if video['nome'] == nome_video:
                             video['enviado'] = True
                             break
                     atualizar_status_video(caminho_json, videos)
                     break
-            except:pass
-        
+            except Exception:
+                pass
 
         # Confirma verificação
+        tentativas = 0
         while True:
             try:
                 if page.locator('button.Button__root--size-medium:nth-child(2)').is_visible():
                     page.click('button.Button__root--size-medium:nth-child(2)')
                     break
-            except:pass
+            except Exception:
+                pass
 
             if tentativas >= 10:
-                tentativas = 0
                 break
-            else:
-                tentativas += 1
-                sleep(1)
-        
+            tentativas += 1
+            sleep(1)
 
         # Espera até terminar o upload
+        tentativas = 0
         while True:
             try:
                 if page.locator('.info-status > span:nth-child(2)').is_visible():
                     texto = page.locator('.info-status > span:nth-child(2)').inner_text()
 
-                    if "Uploaded" in texto:break
-                    else:print(texto)
-            except:
+                    if "Uploaded" in texto:
+                        break
+                    else:
+                        print(texto)
+            except Exception:
                 break
 
-            if tentativas >= 10:
-                tentativas = 0
+            if tentativas >= 180:
                 break
-            else:
-                tentativas += 1
-                sleep(1)
-        
-
+            tentativas += 1
+            sleep(1)
         # Escreve Descrição
         while True:
             try:
@@ -181,8 +186,8 @@ if nome_video:
                     page.fill('.notranslate', '')
                     page.type('.notranslate', descricao)
                     break
-            except:pass
-        
+            except Exception:
+                pass
 
         # Clica em postar
         while True:
@@ -190,29 +195,29 @@ if nome_video:
                 if page.locator('.button-group > button:nth-child(1)').is_visible():
                     page.click('.button-group > button:nth-child(1)')
                     break
-            except:pass
-
+            except Exception:
+                pass
 
         # Confirma postagem
+        tentativas = 0
         while True:
             try:
                 if page.locator('button.TUXButton:nth-child(2)').is_visible():
                     page.click('button.TUXButton:nth-child(2)')
                     break
-            except:pass
+            except Exception:
+                pass
 
             if tentativas >= 10:
-                tentativas = 0
                 break
-            else:
-                tentativas += 1
-                sleep(1)
+            tentativas += 1
+            sleep(1)
 
         # Deleta o vídeo após a postagem
         caminho_arquivo = get_project_video_path()
         if os.path.exists(caminho_arquivo):
             os.remove(caminho_arquivo)
-        
+
         caminho_arquivo = get_download_video_path()
         if os.path.exists(caminho_arquivo):
             os.remove(caminho_arquivo)
@@ -221,6 +226,5 @@ if nome_video:
         browser.close()
 
 
-
-
-
+if __name__ == "__main__":
+    main()

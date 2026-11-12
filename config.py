@@ -1,8 +1,16 @@
 import json
 import os
+import platform
+import shutil
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
+IMG_DIR = BASE_DIR / "img"
+
+_PLACEHOLDER_VALUES = {
+    "sua_chave_deepseek_aqui",
+    "COLE_SEU_VALOR_AQUI",
+}
 
 
 def _load_env_file(env_path: Path) -> None:
@@ -31,15 +39,15 @@ _load_env_file(BASE_DIR / ".env")
 
 def get_deepseek_api_key() -> str:
     key = os.getenv("DEEPSEEK_API_KEY", "").strip()
-    if not key:
+    if not key or key in _PLACEHOLDER_VALUES:
         raise RuntimeError(
-            "DEEPSEEK_API_KEY não configurada. Defina no arquivo .env ou nas variáveis de ambiente."
+            "DEEPSEEK_API_KEY não configurada. Defina uma chave válida no arquivo .env ou nas variáveis de ambiente."
         )
     return key
 
 
 def get_deepseek_api_base() -> str:
-    return os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1").strip()
+    return os.getenv("DEEPSEEK_API_BASE", "").strip() or "https://api.deepseek.com/v1"
 
 
 def get_downloads_dir() -> Path:
@@ -68,22 +76,77 @@ def get_project_video_path() -> str:
 
 
 def get_chrome_path() -> str:
-    return os.getenv(
-        "CHROME_PATH",
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-    )
+    custom = os.getenv("CHROME_PATH", "").strip()
+    if custom:
+        return custom
+
+    system = platform.system()
+    if system == "Windows":
+        return r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+    if system == "Darwin":
+        return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    return shutil.which("google-chrome") or shutil.which("chromium") or "google-chrome"
 
 
 def get_ffmpeg_path() -> str:
-    default = r"C:\ffmpeg\bin\ffmpeg.exe" if os.name == "nt" else "ffmpeg"
-    return os.getenv("FFMPEG_PATH", default)
+    custom = os.getenv("FFMPEG_PATH", "").strip()
+    if custom:
+        return custom
+    if os.name == "nt":
+        return r"C:\ffmpeg\bin\ffmpeg.exe"
+    return shutil.which("ffmpeg") or "ffmpeg"
+
+
+def get_img_path(filename: str) -> str:
+    return str(IMG_DIR / filename)
+
+
+def get_videos_json_path() -> Path:
+    custom = os.getenv("VIDEOS_JSON_PATH", "").strip()
+    if not custom:
+        return BASE_DIR / "videos_criados.json"
+    path = Path(custom)
+    return path if path.is_absolute() else BASE_DIR / path
+
+
+def load_videos_json(json_path: str | Path | None = None) -> list[dict]:
+    path = Path(json_path) if json_path else get_videos_json_path()
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, list):
+        raise ValueError(f"O arquivo {path} deve conter uma lista JSON.")
+    return data
+
+
+def save_videos_json(videos: list[dict], json_path: str | Path | None = None) -> None:
+    path = Path(json_path) if json_path else get_videos_json_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(videos, f, indent=4, ensure_ascii=False)
+
+
+def _normalize_same_site(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    mapping = {
+        "strict": "Strict",
+        "lax": "Lax",
+        "none": "None",
+        "no_restriction": "None",
+        "unspecified": "Lax",
+    }
+    return mapping.get(normalized)
 
 
 def load_cookies(env_var: str, default_filename: str) -> list[dict]:
-    cookies_file = Path(os.getenv(env_var, str(BASE_DIR / default_filename)))
+    raw_path = os.getenv(env_var, "").strip()
+    cookies_file = Path(raw_path) if raw_path else (BASE_DIR / default_filename)
     if not cookies_file.is_absolute():
         cookies_file = BASE_DIR / cookies_file
-    if not cookies_file.exists():
+    if not cookies_file.is_file():
         raise FileNotFoundError(
             f"Arquivo de cookies não encontrado: {cookies_file}. "
             f"Crie-o a partir de cookies.example.json ou configure {env_var}."
@@ -92,4 +155,21 @@ def load_cookies(env_var: str, default_filename: str) -> list[dict]:
         data = json.load(f)
     if not isinstance(data, list):
         raise ValueError(f"O arquivo de cookies {cookies_file} deve conter uma lista JSON.")
-    return data
+
+    normalized_cookies: list[dict] = []
+    for cookie in data:
+        if not isinstance(cookie, dict):
+            raise ValueError(f"Entrada de cookie inválida em {cookies_file}.")
+        if cookie.get("value") in _PLACEHOLDER_VALUES:
+            raise ValueError(
+                f"O arquivo de cookies {cookies_file} ainda contém valor de exemplo. "
+                "Substitua pelos cookies reais da sua sessão."
+            )
+        item = dict(cookie)
+        same_site = _normalize_same_site(item.get("sameSite"))
+        if same_site:
+            item["sameSite"] = same_site
+        else:
+            item.pop("sameSite", None)
+        normalized_cookies.append(item)
+    return normalized_cookies

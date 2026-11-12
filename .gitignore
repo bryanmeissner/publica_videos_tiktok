@@ -2,17 +2,34 @@
 .env
 .env.*
 !.env.example
+secrets/
 
-# Cookies e sessões exportadas do navegador
+# Cookies, sessões e estados de navegador
+cookies/
 cookies*.json
 *cookies*.json
+*session*.json
+*storage_state*.json
+*auth*.json
+*token*.json
 !cookies.example.json
+.playwright/
+playwright-report/
+browser_data/
+user_data/
 
-# Histórico local e mídias geradas
+# Histórico local, logs e mídias geradas
 videos_criados.json
 videos/
 downloads/
 *.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.mp3
+*.wav
+*.log
 
 # Arquivos pessoais / fora do escopo do bot
 teste.py
